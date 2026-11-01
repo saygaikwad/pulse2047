@@ -1,128 +1,96 @@
 
-        st.markdown(
-            '<div class="subject-tag">SUBJECT 01 / विषय ०१</div>',
-            unsafe_allow_html=True
-        )
-
-        st.markdown(
-            '<div class="subject-title">'
-            'विकसित भारत २०४७ साठीचे माझे योगदान'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        old_s1 = old_vote.get("s1")
-
-        s1_index = (
-            ["समर्थन", "विरोध"].index(old_s1)
-            if old_s1 in ["समर्थन", "विरोध"]
-            else None
-        )
-
-        s1 = st.radio(
-            "विषय १ साठी आपले मत निवडा:",
-            ["समर्थन", "विरोध"],
-            index=s1_index,
-            horizontal=True,
-            key="pulse_s1"
-        )
-
-        st.markdown("---")
-
-        st.markdown(
-            '<div class="subject-tag">SUBJECT 02 / विषय ०२</div>',
-            unsafe_allow_html=True
-        )
-
-        st.markdown(
-            '<div class="subject-title">'
-            'युवाशक्ती राष्ट्रशक्ती'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        old_s2 = old_vote.get("s2")
-
-        s2_index = (
-            ["समर्थन", "विरोध"].index(old_s2)
-            if old_s2 in ["समर्थन", "विरोध"]
-            else None
-        )
-
-        s2 = st.radio(
-            "विषय २ साठी आपले मत निवडा:",
-            ["समर्थन", "विरोध"],
-            index=s2_index,
-            horizontal=True,
-            key="pulse_s2"
-        )
-
-        submitted = st.form_submit_button(
-            "SUBMIT / UPDATE MY RESPONSE →"
-        )
-
-
-    # --------------------------------------------------
-    # SAVE OR UPDATE VOTE
-    # --------------------------------------------------
-
-    if submitted:
-
-        if not s1 or not s2:
-
-            st.warning(
-                "कृपया दोन्ही विषयांसाठी पर्याय निवडा."
-            )
-
-        else:
-
-            try:
-                save_result = (
-                    supabase.table("votes")
-                    .upsert(
-                        {
-                            "participant_id": participant_id,
-                            "s1": s1,
-                            "s2": s2
-                        },
-                        on_conflict="participant_id"
-                    )
-                    .execute()
-                )
-
-                st.success(
-                    "तुमचा प्रतिसाद यशस्वीरित्या "
-                    "नोंदवला / अपडेट केला!"
-                )
-
-                st.rerun()
-
-            except Exception as error:
-
-                st.error("आपला प्रतिसाद सेव्ह करता आला नाही.")
-
-                st.markdown(
-                    f'<div class="panel"><b>Database error:</b><br>'
-                    f'<code>{safe_error_message(error)}</code></div>',
-                    unsafe_allow_html=True
-                )
+import streamlit as st
+from supabase import create_client
+from streamlit_autorefresh import st_autorefresh
+import uuid
+import html
 
 # --------------------------------------------------
-# FOOTER
+# PAGE CONFIGURATION
 # --------------------------------------------------
 
-st.markdown("---")
+st.set_page_config(
+    page_title="PULSE 2047 | जनमत LIVE",
+    page_icon="🗳️",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
-st.markdown(
-    """
-    <div style="text-align:center; padding:20px;">
-        <div style="color:#35e0d0; font-weight:900;">
-            PULSE 2047
-        </div>
-        <div style="color:#94a5bd; font-size:12px;">
-            DIGITAL JANMAT NETWORK
-        </div>
-        <div style="color:#94a5bd; font-size:11px; margin-top:8px;">
-            तुमचा विचार · तुमचा आवाज
-        </div>
-    </div>
+# --------------------------------------------------
+# DESIGN
+# --------------------------------------------------
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;600;700;800;900&display=swap');
+
+* {
+    font-family: 'Noto Sans Devanagari', sans-serif;
+}
+
+.stApp {
+    background: radial-gradient(
+        ellipse at 50% -20%,
+        #233a5e 0%,
+        #080d19 65%
+    );
+    color: #f5f7ff;
+}
+
+.block-container {
+    max-width: 1050px;
+    padding-top: 25px;
+    padding-bottom: 40px;
+}
+
+header[data-testid="stHeader"] {
+    background: transparent;
+}
+
+.hero {
+    text-align: center;
+    padding: 25px 0 30px;
+}
+
+.eyebrow {
+    color: #35e0d0;
+    letter-spacing: 3px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.hero-title {
+    font-size: clamp(34px, 6vw, 52px);
+    font-weight: 900;
+    margin: 8px 0;
+    color: #f5f7ff;
+}
+
+.hero-subtitle {
+    color: #94a5bd;
+    font-size: 15px;
+}
+
+.panel {
+    background: #111b2d;
+    border: 1px solid #25344c;
+    border-radius: 17px;
+    padding: 20px;
+    margin: 14px 0;
+}
+
+.metric-label {
+    color: #94a5bd;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.metric-value {
+    color: #35e0d0;
+    font-size: 32px;
+    font-weight: 900;
+}
+
+.subject-tag {
+    color: #35e0d0;
