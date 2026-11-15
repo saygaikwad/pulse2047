@@ -4,9 +4,9 @@ from supabase import create_client
 from streamlit_autorefresh import st_autorefresh
 import uuid
 
-# --------------------------------------------------
+# ==================================================
 # PAGE CONFIG
-# --------------------------------------------------
+# ==================================================
 
 st.set_page_config(
     page_title="PULSE 2047 | जनमत LIVE",
@@ -15,9 +15,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --------------------------------------------------
+# ==================================================
 # DESIGN
-# --------------------------------------------------
+# ==================================================
 
 st.markdown("""
 <style>
@@ -86,9 +86,9 @@ footer {
 </style>
 """, unsafe_allow_html=True)
 
-# --------------------------------------------------
+# ==================================================
 # HEADER
-# --------------------------------------------------
+# ==================================================
 
 st.markdown(
     '<div class="hero"><div class="eyebrow">'
@@ -115,28 +115,36 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --------------------------------------------------
-# DATABASE CONNECTION
-# --------------------------------------------------
+# ==================================================
+# ERROR HANDLING
+# ==================================================
 
 def show_error(error):
+
     message = str(error)
 
-    for secret_name in [
-        "SUPABASE_SERVICE_KEY",
-        "SUPABASE_URL"
-    ]:
-        try:
-            secret = st.secrets.get(secret_name, "")
-            if secret:
-                message = message.replace(secret, "[HIDDEN]")
-        except Exception:
-            pass
+    try:
+        key = st.secrets.get("SUPABASE_SERVICE_KEY", "")
+        url = st.secrets.get("SUPABASE_URL", "")
+
+        if key:
+            message = message.replace(key, "[SECRET HIDDEN]")
+
+        if url:
+            message = message.replace(url, "[URL HIDDEN]")
+
+    except Exception:
+        pass
 
     st.code(message[:1000])
 
 
+# ==================================================
+# DATABASE CONNECTION
+# ==================================================
+
 try:
+
     supabase_url = st.secrets["SUPABASE_URL"].strip().rstrip("/")
     supabase_key = st.secrets["SUPABASE_SERVICE_KEY"].strip()
 
@@ -144,20 +152,26 @@ try:
         raise ValueError("Invalid Supabase URL")
 
     if not supabase_url.endswith(".supabase.co"):
-        raise ValueError("Invalid Supabase project URL")
+        raise ValueError("Use your base Supabase Project URL")
 
-    supabase = create_client(supabase_url, supabase_key)
+    supabase = create_client(
+        supabase_url,
+        supabase_key
+    )
 
 except Exception as error:
+
     st.error("Database connection failed.")
     show_error(error)
     st.stop()
 
-# --------------------------------------------------
+
+# ==================================================
 # PAGE TYPE
-# --------------------------------------------------
+# ==================================================
 
 view = st.query_params.get("view", "vote")
+
 
 # ==================================================
 # ADMIN DASHBOARD
@@ -168,41 +182,14 @@ if view == "admin":
     st.markdown("## 🔴 LIVE VOTING DASHBOARD")
     st.caption("ADMIN VIEW · LIVE RESULTS")
 
-    # ADMIN PASSWORD PROTECTION
-
-    if not st.session_state.get("admin_authenticated", False):
-
-        with st.form("admin_login"):
-
-            password = st.text_input(
-                "Enter Admin Password",
-                type="password"
-            )
-
-            login = st.form_submit_button("LOGIN")
-
-        if login:
-
-            if password == st.secrets["ADMIN_PASSWORD"]:
-                st.session_state.admin_authenticated = True
-                st.rerun()
-            else:
-                st.error("Incorrect password.")
-
-        st.stop()
-
-    if st.button("LOGOUT"):
-        st.session_state.admin_authenticated = False
-        st.rerun()
-
-    # AUTO REFRESH EVERY 5 SECONDS
+    # REFRESH EVERY 5 SECONDS
 
     st_autorefresh(
         interval=5000,
         key="admin_refresh"
     )
 
-    # FETCH ALL RECORDS USING PAGINATION
+    # FETCH ALL DATABASE RECORDS
 
     try:
 
@@ -215,11 +202,13 @@ if view == "admin":
             response = (
                 supabase.table("votes")
                 .select("participant_id,s1,s2")
+                .order("participant_id")
                 .range(start, start + page_size - 1)
                 .execute()
             )
 
             batch = response.data or []
+
             votes.extend(batch)
 
             if len(batch) < page_size:
@@ -233,43 +222,88 @@ if view == "admin":
         show_error(error)
         st.stop()
 
-    # CALCULATE RESULTS
+    # CALCULATE TOTALS
 
     total = len(votes)
 
-    s1_yes = sum(v.get("s1") == "समर्थन" for v in votes)
-    s1_no = sum(v.get("s1") == "विरोध" for v in votes)
+    s1_yes = sum(
+        v.get("s1") == "समर्थन"
+        for v in votes
+    )
 
-    s2_yes = sum(v.get("s2") == "समर्थन" for v in votes)
-    s2_no = sum(v.get("s2") == "विरोध" for v in votes)
+    s1_no = sum(
+        v.get("s1") == "विरोध"
+        for v in votes
+    )
+
+    s2_yes = sum(
+        v.get("s2") == "समर्थन"
+        for v in votes
+    )
+
+    s2_no = sum(
+        v.get("s2") == "विरोध"
+        for v in votes
+    )
+
+    # TOP METRICS
 
     st.markdown("---")
 
     c1, c2, c3 = st.columns(3)
 
-    c1.metric("TOTAL PARTICIPANTS", total)
-    c2.metric("SUBJECT 01 VOTES", s1_yes + s1_no)
-    c3.metric("SUBJECT 02 VOTES", s2_yes + s2_no)
+    c1.metric(
+        "TOTAL PARTICIPANTS",
+        total
+    )
 
-    # RESULT DISPLAY
+    c2.metric(
+        "SUBJECT 01 VOTES",
+        s1_yes + s1_no
+    )
+
+    c3.metric(
+        "SUBJECT 02 VOTES",
+        s2_yes + s2_no
+    )
+
+    # RESULT FUNCTION
 
     def show_results(title, yes, no):
 
         total_votes = yes + no
 
-        yes_pct = round(yes * 100 / total_votes) if total_votes else 0
-        no_pct = round(no * 100 / total_votes) if total_votes else 0
+        yes_pct = (
+            round(yes * 100 / total_votes)
+            if total_votes else 0
+        )
+
+        no_pct = (
+            round(no * 100 / total_votes)
+            if total_votes else 0
+        )
 
         st.markdown("---")
+
         st.subheader(title)
 
-        st.write(f"👍 समर्थन — {yes} ({yes_pct}%)")
+        st.write(
+            f"👍 समर्थन — {yes} ({yes_pct}%)"
+        )
+
         st.progress(yes_pct / 100)
 
-        st.write(f"👎 विरोध — {no} ({no_pct}%)")
+        st.write(
+            f"👎 विरोध — {no} ({no_pct}%)"
+        )
+
         st.progress(no_pct / 100)
 
-        st.caption(f"Total votes: {total_votes}")
+        st.caption(
+            f"Total votes recorded: {total_votes}"
+        )
+
+    # SUBJECT 01
 
     show_results(
         "विषय ०१ · विकसित भारत २०४७ साठीचे माझे योगदान",
@@ -277,22 +311,31 @@ if view == "admin":
         s1_no
     )
 
+    # SUBJECT 02
+
     show_results(
         "विषय ०२ · युवाशक्ती राष्ट्रशक्ती",
         s2_yes,
         s2_no
     )
 
+    # LAST UPDATED
+
     st.markdown("---")
-    st.caption(f"PULSE 2047 · TOTAL PARTICIPANTS: {total}")
+
+    st.caption(
+        f"PULSE 2047 · {total} PARTICIPANTS · LIVE REFRESH: 5 SECONDS"
+    )
 
     st.stop()
+
 
 # ==================================================
 # PUBLIC VOTING PAGE
 # ==================================================
 
 st.markdown("---")
+
 st.markdown("## 🗳️ CAST YOUR VOTE")
 
 st.caption(
@@ -300,23 +343,24 @@ st.caption(
     "आणि एकदाच सबमिट करा."
 )
 
-# --------------------------------------------------
-# UNIQUE PARTICIPANT ID
-# --------------------------------------------------
 
-# IMPORTANT:
-# Do NOT take pid from the shared QR URL.
-# Every separate Streamlit session gets its own ID.
+# ==================================================
+# UNIQUE PARTICIPANT ID
+# ==================================================
+
+# Ignore pid from the shared QR URL.
+# Generate an ID for each new Streamlit session.
 
 if "participant_id" not in st.session_state:
 
-    st.session_state.participant_id = str(uuid.uuid4())
+    st.session_state["participant_id"] = str(uuid.uuid4())
 
-participant_id = st.session_state.participant_id
+participant_id = st.session_state["participant_id"]
 
-# --------------------------------------------------
-# LOAD PREVIOUS VOTE FOR THIS SESSION
-# --------------------------------------------------
+
+# ==================================================
+# LOAD PREVIOUS VOTE
+# ==================================================
 
 try:
 
@@ -328,7 +372,11 @@ try:
         .execute()
     )
 
-    old_vote = previous.data[0] if previous.data else {}
+    old_vote = (
+        previous.data[0]
+        if previous.data
+        else {}
+    )
 
 except Exception as error:
 
@@ -336,19 +384,28 @@ except Exception as error:
     show_error(error)
     st.stop()
 
-# --------------------------------------------------
+
+# ==================================================
 # VOTING FORM
-# --------------------------------------------------
+# ==================================================
 
 options = ["समर्थन", "विरोध"]
 
 with st.form("pulse_voting_form"):
 
     st.markdown("### SUBJECT 01 / विषय ०१")
-    st.subheader("विकसित भारत २०४७ साठीचे माझे योगदान")
+
+    st.subheader(
+        "विकसित भारत २०४७ साठीचे माझे योगदान"
+    )
 
     old_s1 = old_vote.get("s1")
-    s1_index = options.index(old_s1) if old_s1 in options else None
+
+    s1_index = (
+        options.index(old_s1)
+        if old_s1 in options
+        else None
+    )
 
     s1 = st.radio(
         "विषय १ साठी आपले मत निवडा:",
@@ -361,10 +418,16 @@ with st.form("pulse_voting_form"):
     st.markdown("---")
 
     st.markdown("### SUBJECT 02 / विषय ०२")
+
     st.subheader("युवाशक्ती राष्ट्रशक्ती")
 
     old_s2 = old_vote.get("s2")
-    s2_index = options.index(old_s2) if old_s2 in options else None
+
+    s2_index = (
+        options.index(old_s2)
+        if old_s2 in options
+        else None
+    )
 
     s2 = st.radio(
         "विषय २ साठी आपले मत निवडा:",
@@ -378,15 +441,18 @@ with st.form("pulse_voting_form"):
         "SUBMIT / UPDATE MY RESPONSE →"
     )
 
-# --------------------------------------------------
+
+# ==================================================
 # SAVE RESPONSE
-# --------------------------------------------------
+# ==================================================
 
 if submitted:
 
     if s1 not in options or s2 not in options:
 
-        st.warning("Please select an option for both subjects.")
+        st.warning(
+            "कृपया दोन्ही विषयांसाठी आपला पर्याय निवडा."
+        )
 
     else:
 
@@ -407,12 +473,16 @@ if submitted:
 
         except Exception as error:
 
-            st.error("आपला प्रतिसाद सेव्ह करता आला नाही.")
+            st.error(
+                "आपला प्रतिसाद सेव्ह करता आला नाही."
+            )
+
             show_error(error)
 
-# --------------------------------------------------
+
+# ==================================================
 # FOOTER
-# --------------------------------------------------
+# ==================================================
 
 st.markdown("---")
 
