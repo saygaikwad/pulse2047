@@ -97,12 +97,14 @@ st.markdown(
 )
 
 st.markdown(
-    "<h1 style='text-align:center;'>PULSE <span style='color:#35e0d0'>2047</span></h1>",
+    "<h1 style='text-align:center;'>PULSE "
+    "<span style='color:#35e0d0'>2047</span></h1>",
     unsafe_allow_html=True
 )
 
 st.markdown(
-    "<h1 style='text-align:center;'>जनमत <span style='color:#35e0d0'>LIVE</span></h1>",
+    "<h1 style='text-align:center;'>जनमत "
+    "<span style='color:#35e0d0'>LIVE</span></h1>",
     unsafe_allow_html=True
 )
 
@@ -120,17 +122,16 @@ st.markdown(
 def show_error(error):
     message = str(error)
 
-    try:
-        key = st.secrets.get("SUPABASE_SERVICE_KEY", "")
-        url = st.secrets.get("SUPABASE_URL", "")
-
-        if key:
-            message = message.replace(key, "[SECRET HIDDEN]")
-
-        if url:
-            message = message.replace(url, "[URL HIDDEN]")
-    except Exception:
-        pass
+    for secret_name in [
+        "SUPABASE_SERVICE_KEY",
+        "SUPABASE_URL"
+    ]:
+        try:
+            secret = st.secrets.get(secret_name, "")
+            if secret:
+                message = message.replace(secret, "[HIDDEN]")
+        except Exception:
+            pass
 
     st.code(message[:1000])
 
@@ -143,7 +144,7 @@ try:
         raise ValueError("Invalid Supabase URL")
 
     if not supabase_url.endswith(".supabase.co"):
-        raise ValueError("Use the base Project URL ending in .supabase.co")
+        raise ValueError("Invalid Supabase project URL")
 
     supabase = create_client(supabase_url, supabase_key)
 
@@ -167,24 +168,72 @@ if view == "admin":
     st.markdown("## 🔴 LIVE VOTING DASHBOARD")
     st.caption("ADMIN VIEW · LIVE RESULTS")
 
+    # ADMIN PASSWORD PROTECTION
+
+    if not st.session_state.get("admin_authenticated", False):
+
+        with st.form("admin_login"):
+
+            password = st.text_input(
+                "Enter Admin Password",
+                type="password"
+            )
+
+            login = st.form_submit_button("LOGIN")
+
+        if login:
+
+            if password == st.secrets["ADMIN_PASSWORD"]:
+                st.session_state.admin_authenticated = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+
+        st.stop()
+
+    if st.button("LOGOUT"):
+        st.session_state.admin_authenticated = False
+        st.rerun()
+
+    # AUTO REFRESH EVERY 5 SECONDS
+
     st_autorefresh(
         interval=5000,
         key="admin_refresh"
     )
 
-    try:
-        response = (
-            supabase.table("votes")
-            .select("participant_id,s1,s2")
-            .execute()
-        )
+    # FETCH ALL RECORDS USING PAGINATION
 
-        votes = response.data or []
+    try:
+
+        votes = []
+        page_size = 1000
+        start = 0
+
+        while True:
+
+            response = (
+                supabase.table("votes")
+                .select("participant_id,s1,s2")
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+
+            batch = response.data or []
+            votes.extend(batch)
+
+            if len(batch) < page_size:
+                break
+
+            start += page_size
 
     except Exception as error:
+
         st.error("Could not load voting results.")
         show_error(error)
         st.stop()
+
+    # CALCULATE RESULTS
 
     total = len(votes)
 
@@ -199,8 +248,10 @@ if view == "admin":
     c1, c2, c3 = st.columns(3)
 
     c1.metric("TOTAL PARTICIPANTS", total)
-    c2.metric("SUBJECT 01", s1_yes + s1_no)
-    c3.metric("SUBJECT 02", s2_yes + s2_no)
+    c2.metric("SUBJECT 01 VOTES", s1_yes + s1_no)
+    c3.metric("SUBJECT 02 VOTES", s2_yes + s2_no)
+
+    # RESULT DISPLAY
 
     def show_results(title, yes, no):
 
@@ -218,6 +269,8 @@ if view == "admin":
         st.write(f"👎 विरोध — {no} ({no_pct}%)")
         st.progress(no_pct / 100)
 
+        st.caption(f"Total votes: {total_votes}")
+
     show_results(
         "विषय ०१ · विकसित भारत २०४७ साठीचे माझे योगदान",
         s1_yes,
@@ -231,7 +284,7 @@ if view == "admin":
     )
 
     st.markdown("---")
-    st.caption("PULSE 2047 · ADMIN DASHBOARD")
+    st.caption(f"PULSE 2047 · TOTAL PARTICIPANTS: {total}")
 
     st.stop()
 
@@ -248,26 +301,25 @@ st.caption(
 )
 
 # --------------------------------------------------
-# PARTICIPANT ID
+# UNIQUE PARTICIPANT ID
+# --------------------------------------------------
+
+# IMPORTANT:
+# Do NOT take pid from the shared QR URL.
+# Every separate Streamlit session gets its own ID.
+
+if "participant_id" not in st.session_state:
+
+    st.session_state.participant_id = str(uuid.uuid4())
+
+participant_id = st.session_state.participant_id
+
+# --------------------------------------------------
+# LOAD PREVIOUS VOTE FOR THIS SESSION
 # --------------------------------------------------
 
 try:
-    participant_id = st.query_params.get("pid")
 
-    if not participant_id:
-        participant_id = str(uuid.uuid4())
-        st.query_params["pid"] = participant_id
-
-except Exception as error:
-    st.error("Could not create participant ID.")
-    show_error(error)
-    st.stop()
-
-# --------------------------------------------------
-# LOAD PREVIOUS VOTE
-# --------------------------------------------------
-
-try:
     previous = (
         supabase.table("votes")
         .select("participant_id,s1,s2")
@@ -279,6 +331,7 @@ try:
     old_vote = previous.data[0] if previous.data else {}
 
 except Exception as error:
+
     st.error("Could not load your previous response.")
     show_error(error)
     st.stop()
@@ -287,12 +340,12 @@ except Exception as error:
 # VOTING FORM
 # --------------------------------------------------
 
+options = ["समर्थन", "विरोध"]
+
 with st.form("pulse_voting_form"):
 
     st.markdown("### SUBJECT 01 / विषय ०१")
     st.subheader("विकसित भारत २०४७ साठीचे माझे योगदान")
-
-    options = ["समर्थन", "विरोध"]
 
     old_s1 = old_vote.get("s1")
     s1_index = options.index(old_s1) if old_s1 in options else None
@@ -331,23 +384,31 @@ with st.form("pulse_voting_form"):
 
 if submitted:
 
-    try:
-        supabase.table("votes").upsert(
-            {
-                "participant_id": participant_id,
-                "s1": s1,
-                "s2": s2
-            },
-            on_conflict="participant_id"
-        ).execute()
+    if s1 not in options or s2 not in options:
 
-        st.success(
-            "तुमचा प्रतिसाद यशस्वीरित्या नोंदवला / अपडेट केला!"
-        )
+        st.warning("Please select an option for both subjects.")
 
-    except Exception as error:
-        st.error("आपला प्रतिसाद सेव्ह करता आला नाही.")
-        show_error(error)
+    else:
+
+        try:
+
+            supabase.table("votes").upsert(
+                {
+                    "participant_id": participant_id,
+                    "s1": s1,
+                    "s2": s2
+                },
+                on_conflict="participant_id"
+            ).execute()
+
+            st.success(
+                "तुमचा प्रतिसाद यशस्वीरित्या नोंदवला / अपडेट केला!"
+            )
+
+        except Exception as error:
+
+            st.error("आपला प्रतिसाद सेव्ह करता आला नाही.")
+            show_error(error)
 
 # --------------------------------------------------
 # FOOTER
@@ -356,11 +417,13 @@ if submitted:
 st.markdown("---")
 
 st.markdown(
-    "<p style='text-align:center;color:#35e0d0;font-weight:900;'>PULSE 2047</p>",
+    "<p style='text-align:center;color:#35e0d0;font-weight:900;'>"
+    "PULSE 2047</p>",
     unsafe_allow_html=True
 )
 
 st.markdown(
-    "<p style='text-align:center;color:#94a5bd;font-size:12px;'>DIGITAL JANMAT NETWORK</p>",
+    "<p style='text-align:center;color:#94a5bd;font-size:12px;'>"
+    "DIGITAL JANMAT NETWORK</p>",
     unsafe_allow_html=True
 )
